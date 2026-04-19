@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TSP Solver | Final Project</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 Smart Trip Planner</h1>
+            <p>Traveling Salesman Problem using <b>Branch & Bound</b></p>
+        </header>
+
+        <section class="card">
+            <h3>1. Add Destinations</h3>
+            <div id="location-inputs">
+                <input type="text" class="loc-input" value="Paris" placeholder="Enter City Name">
+                <input type="text" class="loc-input" value="London" placeholder="Enter City Name">
+                <input type="text" class="loc-input" value="Rome" placeholder="Enter City Name">
+            </div>
+            <div class="controls">
+                <button id="add-loc-btn" class="btn secondary">+ Add City</button>
+                <button id="solve-btn" class="btn primary">Calculate Route</button>
+            </div>
+        </section>
+
+        <div id="loader" class="hidden">🔄 Validating and calculating...</div>
+
+        <section id="results-section" class="hidden">
+            <div class="grid">
+                <div class="card">
+                    <h3>Distance Matrix (km)</h3>
+                    <div id="matrix-container" class="scrollable"></div>
+                </div>
+                <div class="card">
+                    <h3>Optimal Path</h3>
+                    <div class="badge"><span id="total-dist">0</span> km</div>
+                    <div id="route-path"></div>
+                    <div id="complexity-note" class="stats"></div>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Route Visualization</h3>
+                <div id="map"></div>
+            </div>
+        </section>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
