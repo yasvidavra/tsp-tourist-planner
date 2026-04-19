@@ -13,7 +13,7 @@ function initMap() {
 document.getElementById('add-loc-btn').onclick = () => {
     const input = document.createElement('input');
     input.className = 'loc-input';
-    input.placeholder = 'Enter City Name (e.g., Ahmedabad)';
+    input.placeholder = 'Enter City Name';
     document.getElementById('location-inputs').appendChild(input);
 };
 
@@ -42,7 +42,6 @@ document.getElementById('solve-btn').onclick = async () => {
             const res = await fetch(url);
             const data = await res.json();
 
-            // --- STRICT VALIDATION LOGIC ---
             // We look for results that are specifically geographical areas
             const cityResult = data.find(item => {
                 const type = item.addresstype || item.type;
