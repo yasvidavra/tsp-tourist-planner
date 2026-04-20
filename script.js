@@ -1,201 +1,223 @@
-let map, polyline, markers = [];
-const INF = 999999999;
+// ==========================================
+// 1. MAP INITIALIZATION (Leaflet.js)
+// ==========================================
+// Center map on India by default, zoom level 4
+let map = L.map('map').setView([20.5937, 78.9629], 4); 
 
-// 1. Initialize Map with a delay-safe check
-function initMap() {
-    map = L.map('map').setView([20, 0], 2);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        attribution: '© OpenStreetMap'
-    }).addTo(map);
-}
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+}).addTo(map);
 
-// 2. Add Dynamic Inputs
-document.getElementById('add-loc-btn').onclick = () => {
+let routeLayer = L.layerGroup().addTo(map);
+
+// ==========================================
+// 2. UI & BUTTON LISTENERS
+// ==========================================
+
+// "+ Add City" Button Logic
+document.getElementById('add-loc-btn').addEventListener('click', () => {
+    const container = document.getElementById('location-inputs');
     const input = document.createElement('input');
+    input.type = 'text';
     input.className = 'loc-input';
     input.placeholder = 'Enter City Name';
-    document.getElementById('location-inputs').appendChild(input);
-};
+    container.appendChild(input);
+});
 
-// 3. Main Solve Logic
+// "Calculate Route" Button Logic
+document.getElementById('solve-btn').addEventListener('click', async () => {
+    // Grab all city inputs that aren't empty
+    const inputs = Array.from(document.querySelectorAll('.loc-input'))
+        .map(input => input.value.trim())
+        .filter(val => val !== '');
 
-document.getElementById('solve-btn').onclick = async () => {
-    const cityInputs = Array.from(document.querySelectorAll('.loc-input'))
-                            .map(i => i.value.trim())
-                            .filter(v => v !== "");
-    
-    if (cityInputs.length < 3) {
-        alert("Please enter at least 3 valid cities.");
+    // Check for duplicate cities (ignoring uppercase/lowercase differences)
+    const uniqueCities = new Set(inputs.map(city => city.toLowerCase()));
+    if (uniqueCities.size !== inputs.length) {
+        alert("Duplicate cities found! Please ensure all destinations are unique.");
+        return; // Stop the calculation
+    }
+
+    if (inputs.length < 3) {
+        alert("Please enter at least 3 valid cities to calculate a route!");
         return;
     }
 
-    const loader = document.getElementById('loader');
-    loader.classList.remove('hidden');
-    loader.innerText = "🔍 Verifying city names...";
+    // Show loading text, hide old results
+    document.getElementById('loader').classList.remove('hidden');
+    document.getElementById('results-section').classList.add('hidden');
 
     try {
         const locations = [];
         
-        for (let city of cityInputs) {
-            // We search with 'addressdetails=1' to see the exact type of place
-            const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=${encodeURIComponent(city)}`;
-            const res = await fetch(url);
+        // Step 1: Geocode cities to get Latitude/Longitude via OpenStreetMap API
+        for (const city of inputs) {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city)}`);
             const data = await res.json();
-
-            // We look for results that are specifically geographical areas
-            const cityResult = data.find(item => {
-                const type = item.addresstype || item.type;
-                return ['city', 'town', 'village', 'municipality', 'county', 'state_district'].includes(type);
-            });
-
-            if (!cityResult) {
-                throw new Error(`"${city}" is not a recognized city or town. Please enter a valid geographical name.`);
-            }
-
+            
+            if (data.length === 0) throw new Error(`Could not find coordinates for: ${city}`);
+            
             locations.push({ 
-                lat: parseFloat(cityResult.lat), 
-                lng: parseFloat(cityResult.lon), 
-                name: cityResult.display_name.split(',')[0] 
+                name: data[0].name || city, 
+                lat: parseFloat(data[0].lat), 
+                lon: parseFloat(data[0].lon) 
             });
         }
 
-        // Calculation logic follows...
-        loader.innerText = "🔄 Computing optimal route...";
         const n = locations.length;
-        const matrix = Array.from({ length: n }, () => Array(n).fill(0));
-        for (let i = 0; i < n; i++) {
-            for (let j = 0; j < n; j++) {
-                matrix[i][j] = (i === j) ? INF : haversineDistance(locations[i], locations[j]);
+        const matrix = Array(n).fill(null).map(() => Array(n).fill(Infinity));
+
+        // Step 2: Calculate actual real-world distances (Haversine formula)
+        for(let i = 0; i < n; i++) {
+            for(let j = 0; j < n; j++) {
+                if (i === j) {
+                    matrix[i][j] = Infinity;
+                } else {
+                    const R = 6371; // Earth's radius in km
+                    const dLat = (locations[j].lat - locations[i].lat) * Math.PI / 180;
+                    const dLon = (locations[j].lon - locations[i].lon) * Math.PI / 180;
+                    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                              Math.cos(locations[i].lat * Math.PI / 180) * Math.cos(locations[j].lat * Math.PI / 180) *
+                              Math.sin(dLon/2) * Math.sin(dLon/2);
+                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                    matrix[i][j] = R * c; // Distance in km
+                }
             }
         }
 
+        // Step 3: Run your Branch & Bound algorithm
         const result = solveTSP(matrix);
 
+        // Step 4: Update the webpage UI with results
+        document.getElementById('total-dist').innerText = result.cost;
+        document.getElementById('route-path').innerText = result.path.map(idx => locations[idx].name).join(' ➔ ');
+
+        // Step 5: Draw the route on the Leaflet Map
+        routeLayer.clearLayers();
+        const latlngs = result.path.map(idx => [locations[idx].lat, locations[idx].lon]);
+        
+        // Add markers (ignoring the very last point since it's the start point repeating)
+        latlngs.forEach((coord, i) => {
+            if(i < latlngs.length - 1) { 
+               L.marker(coord).bindPopup(`<b>Stop ${i+1}:</b> ${locations[result.path[i]].name}`).addTo(routeLayer);
+            }
+        });
+
+        // Draw the line and zoom map to fit it
+        const polyline = L.polyline(latlngs, {color: '#2563eb', weight: 4}).addTo(routeLayer);
+        map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+
+        // Step 6: Generate the Distance Matrix Table
+        let tableHTML = '<table><tr><th>City</th>' + locations.map(l => `<th>${l.name.split(',')[0]}</th>`).join('') + '</tr>';
+        for(let i = 0; i < n; i++) {
+            tableHTML += `<tr><th>${locations[i].name.split(',')[0]}</th>`;
+            for(let j = 0; j < n; j++) {
+                tableHTML += `<td>${matrix[i][j] === Infinity ? '-' : matrix[i][j].toFixed(0)}</td>`;
+            }
+            tableHTML += '</tr>';
+        }
+        tableHTML += '</table>';
+        document.getElementById('matrix-container').innerHTML = tableHTML;
+
+        // Reveal the results section
         document.getElementById('results-section').classList.remove('hidden');
-        setTimeout(() => {
-            map.invalidateSize();
-            drawRoute(locations, result.path);
-        }, 300);
+        
+        // Tell Leaflet to recalculate its size now that the div is no longer hidden
+        setTimeout(() => { map.invalidateSize(); }, 100);
 
-        renderOutput(locations.map(l => l.name), matrix, result);
-
-    } catch (err) {
-        alert("⚠️ Validation Error: " + err.message);
+    } catch (error) {
+        alert("Error: " + error.message);
     } finally {
-        loader.classList.add('hidden');
+        // Hide loader when done
+        document.getElementById('loader').classList.add('hidden');
     }
-};
+});
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// --- ALGORITHMS ---
-
-function haversineDistance(p1, p2) {
-    const R = 6371; 
-    const dLat = (p2.lat - p1.lat) * Math.PI / 180;
-    const dLon = (p2.lng - p1.lng) * Math.PI / 180;
-    const a = Math.sin(dLat/2)**2 + 
-              Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) * Math.sin(dLon/2)**2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
+// ==========================================
+// 3. YOUR TSP ENGINE (Branch & Bound)
+// ==========================================
 function solveTSP(matrix) {
     const n = matrix.length;
-    let minCost = INF, bestPath = [];
+    let minCost = Infinity;
+    let bestPath = [];
 
-    function search(curr, visited, cost, path) {
-        if (path.length === n) {
-            const total = cost + matrix[curr][0];
-            if (total < minCost) { minCost = total; bestPath = [...path, 0]; }
+    function firstMin(i) {
+        let min = Infinity;
+        for (let k = 0; k < n; k++) {
+            if (i !== k && matrix[i][k] < min) {
+                min = matrix[i][k];
+            }
+        }
+        return min;
+    }
+
+    function secondMin(i) {
+        let first = Infinity, second = Infinity;
+        for (let j = 0; j < n; j++) {
+            if (i === j) continue;
+            if (matrix[i][j] <= first) {
+                second = first;
+                first = matrix[i][j];
+            } else if (matrix[i][j] < second) {
+                second = matrix[i][j];
+            }
+        }
+        return second;
+    }
+
+    function tspRec(currBound, currWeight, level, currPath, visited) {
+        if (level === n) {
+            if (matrix[currPath[level - 1]][currPath[0]] !== Infinity) {
+                const currRes = currWeight + matrix[currPath[level - 1]][currPath[0]];
+                if (currRes < minCost) {
+                    currPath[n] = currPath[0]; 
+                    bestPath = [...currPath]; 
+                    minCost = currRes;
+                }
+            }
             return;
         }
+
         for (let i = 0; i < n; i++) {
-            if (!visited[i] && (cost + matrix[curr][i] < minCost)) {
-                visited[i] = true;
-                path.push(i);
-                search(i, visited, cost + matrix[curr][i], path);
-                path.pop();
-                visited[i] = false;
+            if (matrix[currPath[level - 1]][i] !== Infinity && !visited[i]) {
+                let temp = currBound;
+                currWeight += matrix[currPath[level - 1]][i];
+
+                if (level === 1) {
+                    currBound -= ((firstMin(currPath[level - 1]) + firstMin(i)) / 2);
+                } else {
+                    currBound -= ((secondMin(currPath[level - 1]) + firstMin(i)) / 2);
+                }
+
+                if (currBound + currWeight < minCost) {
+                    currPath[level] = i;
+                    visited[i] = true;
+                    tspRec(currBound, currWeight, level + 1, currPath, visited);
+                    visited[i] = false; 
+                }
+
+                currWeight -= matrix[currPath[level - 1]][i];
+                currBound = temp;
             }
         }
     }
 
-    const visited = new Array(n).fill(false);
+    let currBound = 0;
+    let currPath = new Array(n + 1);
+    let visited = new Array(n).fill(false);
+
+    for (let i = 0; i < n; i++) {
+        currBound += (firstMin(i) + secondMin(i));
+    }
+    currBound = Math.ceil(currBound / 2);
     visited[0] = true;
-    search(0, visited, 0, [0]);
-    return { cost: minCost.toFixed(2), path: bestPath };
+    currPath[0] = 0;
+
+    tspRec(currBound, 0, 1, currPath, visited);
+
+    return {
+        cost: minCost === Infinity ? "0.00" : minCost.toFixed(2), 
+        path: bestPath
+    };
 }
-
-// --- RENDERING ---
-
-function renderOutput(names, matrix, result, time) {
-    let table = `<table><tr><th>From/To</th>${names.map(n => `<th>${n.slice(0,3)}</th>`).join('')}</tr>`;
-    matrix.forEach((row, i) => {
-        table += `<tr><th>${names[i]}</th>${row.map(d => `<td>${d === INF ? '∞' : Math.round(d)}</td>`).join('')}</tr>`;
-    });
-    document.getElementById('matrix-container').innerHTML = table + `</table>`;
-    document.getElementById('total-dist').innerText = result.cost;
-    document.getElementById('route-path').innerText = result.path.map(i => names[i]).join(" ➔ ");
-}
-
-function drawRoute(locations, path) {
-    if (polyline) map.removeLayer(polyline);
-    markers.forEach(m => map.removeLayer(m));
-    markers = [];
-
-    const coords = path.map(i => [locations[i].lat, locations[i].lng]);
-    polyline = L.polyline(coords, {color: '#2563eb', weight: 5, opacity: 0.8}).addTo(map);
-    
-    locations.forEach(loc => {
-        const m = L.marker([loc.lat, loc.lng]).addTo(map).bindPopup(loc.name);
-        markers.push(m);
-    });
-    map.fitBounds(polyline.getBounds(), { padding: [40, 40] });
-}
-
-initMap();
