@@ -1,14 +1,13 @@
-🌍 Travelling Salesman Problem (TSP) Visualizer
+# 🌍 Travelling Salesman Problem (TSP) Visualizer
 
-📌 Overview
+## 📌 Overview
 
 This project is a web-based implementation of the Travelling Salesman Problem (TSP) that allows users to input city names and compute the shortest possible route visiting all cities exactly once.
 
 It uses real-world geographical data and displays the route on an interactive map.
 
----
 
-🚀 Features
+## 🚀 Features
 
 - 🌐 Enter multiple city names dynamically
 - 📍 Automatic city validation using OpenStreetMap API
@@ -18,9 +17,8 @@ It uses real-world geographical data and displays the route on an interactive ma
 - 📊 Distance matrix display
 - ⚡ Real-time route rendering
 
----
 
-🛠️ Technologies Used
+## 🛠️ Technologies Used
 
 - HTML
 - CSS
@@ -28,18 +26,16 @@ It uses real-world geographical data and displays the route on an interactive ma
 - Leaflet.js (for maps)
 - OpenStreetMap API (Nominatim)
 
----
 
-📂 Project Structure
+## 📂 Project Structure
 
 TSP/
 │── index.html
 │── style.css
 │── script.js
 
----
 
-🧠 How It Works
+## 🧠 How It Works
 
 1. City Validation
 
@@ -54,22 +50,19 @@ TSP/
 - Uses Backtracking (Brute Force) approach
 - Finds minimum cost path
 
----
 
-📊 Example Output
+## 📊 Example Output
 
 - Optimal Route: Ahmedabad ➔ Mumbai ➔ Delhi ➔ Ahmedabad
 - Total Distance: 1500+ km (approx.)
 
----
 
-⚠️ Limitations
+## ⚠️ Limitations
 
 - Works best with small number of cities (due to brute-force approach)
 - Requires internet connection for API calls
 
----
 
-👨‍💻 Author
+## 👨‍💻 Author
 
 - Yasvi Davra , Kushal Bhavasar , Prince Kalal
