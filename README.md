@@ -65,4 +65,4 @@ TSP/
 
 ## 👨‍💻 Author
 
-- Yasvi Davra , Kushal Bhavasar , Prince Kalal
+- Yasvi Davra , Kushal Bhavsar , Prince Kalal
