@@ -8,6 +8,38 @@ function initMap() {
     L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         attribution: '© OpenStreetMap'
     }).addTo(map);
+
+    // Feature: Pick new cities on map
+    map.on('click', async (e) => {
+        const { lat, lng } = e.latlng;
+        
+        try {
+            // Reverse geocode to get city name
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+            const data = await res.json();
+            
+            let locationName = "Unknown Location";
+            if (data && data.address) {
+                locationName = data.address.city || data.address.town || data.address.village || data.name || data.display_name.split(',')[0];
+            }
+
+            // Create a new input field and populate it
+            const input = document.createElement('input');
+            input.className = 'loc-input';
+            input.placeholder = 'Enter City Name';
+            input.value = locationName;
+            document.getElementById('location-inputs').appendChild(input);
+
+            // Show a temporary popup on map to confirm
+            L.popup()
+                .setLatLng(e.latlng)
+                .setContent(`Added: <b>${locationName}</b>`)
+                .openOn(map);
+
+        } catch (err) {
+            console.error("Reverse geocoding failed", err);
+        }
+    });
 }
 
 // 2. UI Event Listeners
@@ -56,15 +88,20 @@ document.getElementById('solve-btn').onclick = async () => {
             }
         }
 
-        // Step B: Build Distance Matrix
+        // Step B: Build Distance Matrix using OSRM
         const n = locations.length;
-        const matrix = Array.from({ length: n }, () => Array(n).fill(0));
-        for (let i = 0; i < n; i++) {
-            for (let j = 0; j < n; j++) {
-                // If i === j (e.g., Paris to Paris), distance is 0. Otherwise, calculate Haversine.
-                matrix[i][j] = (i === j) ? 0 : haversineDistance(locations[i], locations[j]);
-            }
+        const coordsStr = locations.map(loc => `${loc.lng},${loc.lat}`).join(';');
+        const osrmTableUrl = `https://router.project-osrm.org/table/v1/driving/${coordsStr}?annotations=distance`;
+        
+        const tableRes = await fetch(osrmTableUrl);
+        const tableData = await tableRes.json();
+        
+        if (tableData.code !== 'Ok') {
+            throw new Error('Failed to fetch distance matrix from OSRM. Please try again.');
         }
+
+        // Extract distances (in meters) and convert to km
+        const matrix = tableData.distances.map(row => row.map(d => d / 1000));
 
         // Step C: Solve TSP with Branch and Bound logic
         const startTime = performance.now();
@@ -90,15 +127,6 @@ document.getElementById('solve-btn').onclick = async () => {
 
 // --- ALGORITHMS ---
 
-function haversineDistance(p1, p2) {
-    const R = 6371; // Earth's radius in km
-    const dLat = (p2.lat - p1.lat) * Math.PI / 180;
-    const dLon = (p2.lng - p1.lng) * Math.PI / 180;
-    const a = Math.sin(dLat/2)**2 + 
-              Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) * Math.sin(dLon/2)**2;
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
-}
 
 function solveTSP(matrix) {
     const n = matrix.length;
@@ -152,30 +180,51 @@ function renderOutput(names, matrix, result, time) {
     document.getElementById('complexity-note').innerHTML = `
         <b>Algorithm:</b> Branch and Bound<br>
         <b>Execution Time:</b> ${time} ms<br>
-        <b>Heuristic:</b> Haversine Great-Circle Distance
+        <b>Routing:</b> OSRM Driving Distance
     `;
 }
 
-function drawRoute(locations, path) {
+async function drawRoute(locations, path) {
     if (polyline) map.removeLayer(polyline);
     markers.forEach(m => map.removeLayer(m));
     markers = [];
 
-    const coords = path.map(i => [locations[i].lat, locations[i].lng]);
-    
-    polyline = L.polyline(coords, {
-        color: '#2563eb',
-        weight: 4,
-        opacity: 0.8,
-        dashArray: '10, 10'
-    }).addTo(map);
-    
+    // Place markers
     locations.forEach((loc, idx) => {
         const m = L.marker([loc.lat, loc.lng]).addTo(map).bindPopup(`${idx+1}. ${loc.name}`);
         markers.push(m);
     });
 
-    map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+    try {
+        const pathCoordsStr = path.map(i => `${locations[i].lng},${locations[i].lat}`).join(';');
+        const osrmRouteUrl = `https://router.project-osrm.org/route/v1/driving/${pathCoordsStr}?overview=full&geometries=geojson`;
+        const routeRes = await fetch(osrmRouteUrl);
+        const routeData = await routeRes.json();
+        
+        if (routeData.code === 'Ok') {
+            const geojsonCoords = routeData.routes[0].geometry.coordinates;
+            // Leaflet expects [lat, lng], OSRM GeoJSON is [lng, lat]
+            const latLngs = geojsonCoords.map(coord => [coord[1], coord[0]]);
+            polyline = L.polyline(latLngs, {
+                color: '#2563eb',
+                weight: 4,
+                opacity: 0.8
+            }).addTo(map);
+        } else {
+            throw new Error("Route calculation failed");
+        }
+    } catch(err) {
+        // Fallback to straight lines if OSRM fails
+        const coords = path.map(i => [locations[i].lat, locations[i].lng]);
+        polyline = L.polyline(coords, {
+            color: '#2563eb',
+            weight: 4,
+            opacity: 0.8,
+            dashArray: '10, 10'
+        }).addTo(map);
+    }
+
+    if (polyline) map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
 }
 
 initMap();
